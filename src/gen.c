@@ -31,14 +31,23 @@
 #define E_EHSIZE 0x40
 #define E_PHENTSIZE 0 // 38 00 in exec 56 bytes long
 #define E_PHNUM 0 // 02 00 in exec
-#define E_SHENTSIZE 458816 // 40 00 07 00
-#define E_SHSTRNDX 3 // 03 00
+#define E_SHENTSIZE 0x40 // 40 00
+#define E_SHNUM 3 // number of sections, none (or magic ?), .data and .shstrtab section
+#define E_SHSTRNDX 2 // Index of .shstrtab section in the section header table
 
 #define SH_DATA 1 // 01 00 00 00
 #define SH_TYPE 1 // 01 00 00 00: SHT_PROGBITS
 #define SH_FLAGS 3 // + 03 00 00 00 00 00 00 00: SHF_WRITE and SHF_ALLOC
 
-#define SH_DATA_FLAGS SHF_ALLOC | SHF_WRITE
+#define SH_DATA_FLAGS SHF_ALLOC
+
+#define SH_SHSTRTAB 0x3
+
+uint64_t data_addr = 0;
+uint64_t data_size = 0;
+
+uint64_t shstrtab_addr = 0;
+uint64_t shstrtab_size = 0;
 
 Gen* newGen(const char* outName) {
     Gen* gen = malloc(sizeof(Gen));
@@ -87,6 +96,16 @@ void genZeros(Gen* gen, size_t n) {
     }
 }
 
+void genWrite64At(Gen* gen, uint64_t n, uint64_t addr) {
+    for (int i = 0; i < 8; ++i) {
+        gen->buf[addr + i] = (uint8_t)(n >> (i * 8));
+    }
+}
+
+void genPadding(Gen* gen) {
+    genZeros(gen, 16 - (gen->bufSize % 16));
+}
+
 void genElfHeader(Gen* gen) {
     genWrite(gen, E_MAGIC_NUMBER);
     genAppendBuf(gen, E_CLASS);
@@ -104,7 +123,8 @@ void genElfHeader(Gen* gen) {
     genWrite16(gen, E_EHSIZE);
     genWrite16(gen, E_PHENTSIZE);
     genWrite16(gen, E_PHNUM);
-    genWrite32(gen, E_SHENTSIZE);
+    genWrite16(gen, E_SHENTSIZE);
+    genWrite16(gen, E_SHNUM);
     genWrite16(gen, E_SHSTRNDX);
 
     genSectionHeader(gen);
@@ -114,6 +134,7 @@ void genElfHeader(Gen* gen) {
 void genSectionHeader(Gen* gen) {}
 
 void genSections(Gen* gen) {
+    // TODO: Generate all section without hard-coding :)
     // magic section ?
     genZeros(gen, 64);
 
@@ -122,11 +143,47 @@ void genSections(Gen* gen) {
     genWrite32(gen, SH_TYPE);
     genWrite64(gen, SH_DATA_FLAGS);
     genWrite64(gen, 0); // addr
-    genWrite64(gen, 0x200); // offset
-    genWrite64(gen, 0x0d); // size
+
+    uint64_t __data_addr = gen->bufSize;
+    // we don't know the address yet
+    genWrite64(gen, 0); // offset
+    genWrite64(gen, 12); // size, "Hello World\n" is 12 characters
+
     genWrite64(gen, 0); // sh_link | sh_info
     genWrite64(gen, 4); // sh_addralign
     genWrite64(gen, 0); // sh_entrysize
+
+    /** .shstrtab section
+     *
+     *   . . d a t a . . s h s t r t a b
+     *   0 1 2 3 4 5 6 7 8 9 . . . . . .
+     *                 ^ index here
+     */
+    genWrite32(gen, 7); // offset to the start of name
+    genWrite32(gen, SH_SHSTRTAB); // section type
+    genWrite64(gen, SH_DATA_FLAGS);
+    genWrite64(gen, 0); // addr
+
+    uint64_t __shstrtab_addr = gen->bufSize;
+    // we don't know the address yet
+    genWrite64(gen, 0); // offset
+    genWrite64(gen, 16); // size
+
+    genWrite64(gen, 0); // sh_link | sh_info
+    genWrite64(gen, 0); // sh_addralign
+    genWrite64(gen, 0); // sh_entrysize
+
+    uint64_t raw_data_addr = gen->bufSize;
+    genWrite(gen, "Hello World\n");
+    genPadding(gen);
+    genWrite64At(gen, raw_data_addr, __data_addr);
+
+    shstrtab_addr = gen->bufSize;
+    genWrite8(gen, 0);
+    genWrite(gen, ".data");
+    genWrite8(gen, 0);
+    genWrite(gen, ".shstrtab");
+    genWrite64At(gen, shstrtab_addr, __shstrtab_addr);
 }
 
 void writeFile(Gen* gen) {

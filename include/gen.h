@@ -21,3 +21,6 @@ void genWrite16(Gen* gen, uint16_t n);
 void genWrite32(Gen* gen, uint32_t n);
 void genWrite64(Gen* gen, uint64_t n);
 void genZeros(Gen* gen, size_t n);
+
+void genWrite64At(Gen* gen, uint64_t n, uint64_t addr);
+void genPadding(Gen* gen);
